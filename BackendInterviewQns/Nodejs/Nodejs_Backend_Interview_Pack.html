@@ -1,0 +1,577 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Node.js Backend Interview Pack</title>
+<style>
+  @page { margin: 1in; }
+  body { font-family: Georgia, 'Times New Roman', serif; color: #111; line-height: 1.4; }
+  h1 { font-size: 24px; margin-top: 28px; border-bottom: 1px solid #ddd; padding-bottom: 6px; }
+  h2 { font-size: 18px; margin-top: 20px; }
+  h3 { font-size: 16px; margin-top: 16px; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0 8px 24px; }
+  code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 90%; background: #f5f5f5; padding: 1px 4px; border-radius: 3px; }
+  pre { background: #f5f5f5; padding: 12px; border-radius: 6px; overflow-x: auto; }
+  pre code { background: none; padding: 0; }
+  .spacer { height: 8px; }
+  .cover { text-align: center; margin-top: 80px; margin-bottom: 40px; }
+  .cover h1 { border-bottom: none; font-size: 30px; }
+  .toc h2 { margin-top: 0; }
+  .pagebreak { page-break-after: always; }
+</style>
+</head>
+<body>
+  <div class="cover">
+    <h1>Node.js Backend Interview Pack</h1>
+    <p>Senior‑Level Concepts with Answers and Code Examples</p>
+  </div>
+  <div class="pagebreak"></div>
+  <div class="toc">
+    <h2>Table of Contents</h2>
+    <ol>
+      <li>Event Loop, Microtasks, and I/O Phases</li>
+      <li>Streams and Backpressure</li>
+      <li>Scaling Node.js: Cluster, Worker Threads, and Horizontal Scale</li>
+      <li>Database Transactions and Isolation</li>
+      <li>Idempotent APIs</li>
+      <li>Caching Strategies (Read‑Through, Write‑Through)</li>
+      <li>Rate Limiting and Abuse Prevention</li>
+      <li>Message Queues and At‑Least‑Once Delivery</li>
+      <li>Security: Input Validation and Injection Prevention</li>
+      <li>Observability: Logs, Metrics, and Traces</li>
+      <li>CAP Theorem</li>
+      <li>Database Indexing</li>
+      <li>System Design Deep Dives</li>
+    </ol>
+  </div>
+  <div class="pagebreak"></div>
+  <h1>Event Loop, Microtasks, and I/O Phases</h1>
+<div class="spacer"></div>
+<h2>Question</h2>
+<p>Explain the Node.js event loop phases, microtasks, and how <code>setImmediate</code>, <code>setTimeout(0)</code>, and Promises are ordered.</p>
+<div class="spacer"></div>
+<h2>Answer</h2>
+<p>Node.js runs an event loop with phases: timers, I/O callbacks, poll, check, and close callbacks. Microtasks (<code>Promise.then</code>, <code>queueMicrotask</code>) run after the current call stack and between phases, so they usually execute before timers and <code>setImmediate</code>.</p>
+<div class="spacer"></div>
+<h2>Illustration</h2>
+<pre><code>
+Call Stack
+  ↓
+Microtasks (Promises, queueMicrotask)
+  ↓
+Event Loop Phases
+  - Timers (setTimeout, setInterval)
+  - I/O callbacks
+  - Poll
+  - Check (setImmediate)
+  - Close callbacks
+</code></pre>
+<div class="spacer"></div>
+<h2>Code Example</h2>
+<pre><code>
+setTimeout(() =&gt; console.log(&#x27;timeout&#x27;), 0);
+setImmediate(() =&gt; console.log(&#x27;immediate&#x27;));
+Promise.resolve().then(() =&gt; console.log(&#x27;promise&#x27;));
+console.log(&#x27;sync&#x27;);
+
+// Typical order
+// sync
+// promise
+// timeout or immediate (order depends on I/O timing)
+</code></pre>
+<div class="spacer"></div>
+<h2>Senior Notes</h2>
+<ul>
+<li>Microtasks always run before the next phase.</li>
+<li>Inside an I/O callback, <code>setImmediate</code> often fires before <code>setTimeout(0)</code>.</li>
+<li>Event loop lag can be measured with <code>setInterval</code> or <code>perf_hooks</code>.</li>
+</ul><h1>Streams and Backpressure</h1>
+<div class="spacer"></div>
+<h2>Question</h2>
+<p>How do you handle large uploads/downloads without high memory usage?</p>
+<div class="spacer"></div>
+<h2>Answer</h2>
+<p>Use streams and backpressure. Avoid buffering large payloads in memory. Pipe a readable stream into a writable stream so Node can apply flow control.</p>
+<div class="spacer"></div>
+<h2>Illustration</h2>
+<pre><code>
+Client → Readable Stream → Transform → Writable Stream
+            ↑ backpressure controls flow
+</code></pre>
+<div class="spacer"></div>
+<h2>Code Example</h2>
+<pre><code>
+const fs = require(&#x27;fs&#x27;);
+const http = require(&#x27;http&#x27;);
+
+http.createServer((req, res) =&gt; {
+  const read = fs.createReadStream(&#x27;./large-file.bin&#x27;);
+  read.pipe(res);
+}).listen(3000);
+</code></pre>
+<div class="spacer"></div>
+<h2>Senior Notes</h2>
+<ul>
+<li>Use <code>stream.pipeline</code> to handle errors reliably.</li>
+<li>Tune <code>highWaterMark</code> for throughput vs memory.</li>
+<li>For uploads, pipe request stream into storage or hashing directly.</li>
+</ul><h1>Scaling Node.js: Cluster, Worker Threads, and Horizontal Scale</h1>
+<div class="spacer"></div>
+<h2>Question</h2>
+<p>Node.js is single‑threaded. How do you scale CPU‑bound work and handle traffic growth?</p>
+<div class="spacer"></div>
+<h2>Answer</h2>
+<p>Use worker threads for CPU‑bound tasks and multiple Node processes for parallel request handling. Horizontally scale with containers and a load balancer.</p>
+<div class="spacer"></div>
+<h2>Illustration</h2>
+<pre><code>
+Load Balancer
+  → Node Process 1
+  → Node Process 2
+  → Node Process 3
+
+CPU Task → Worker Thread Pool
+</code></pre>
+<div class="spacer"></div>
+<h2>Code Example (Worker Thread)</h2>
+<pre><code>
+const { Worker } = require(&#x27;worker_threads&#x27;);
+
+function runJob(data) {
+  return new Promise((resolve, reject) =&gt; {
+    const worker = new Worker(&#x27;./worker.js&#x27;, { workerData: data });
+    worker.on(&#x27;message&#x27;, resolve);
+    worker.on(&#x27;error&#x27;, reject);
+  });
+}
+</code></pre>
+<div class="spacer"></div>
+<h2>Senior Notes</h2>
+<ul>
+<li>Prefer I/O in the main process, CPU work in workers.</li>
+<li>Use <code>cluster</code> or process managers for multi‑core utilization.</li>
+<li>Monitor event loop lag to detect CPU saturation.</li>
+</ul><h1>Database Transactions and Isolation</h1>
+<div class="spacer"></div>
+<h2>Question</h2>
+<p>How do you ensure consistency with concurrent requests in a Node.js API?</p>
+<div class="spacer"></div>
+<h2>Answer</h2>
+<p>Use ACID transactions at the database level and pick a suitable isolation level. Avoid app‑level locks for correctness.</p>
+<div class="spacer"></div>
+<h2>Illustration</h2>
+<pre><code>
+T1: Read balance=100 → Withdraw 80 → Commit
+T2: Read balance=100 → Withdraw 80 → Commit
+
+If not isolated → balance becomes -60 (lost update)
+</code></pre>
+<div class="spacer"></div>
+<h2>Code Example (PostgreSQL with node‑pg)</h2>
+<pre><code>
+const { Pool } = require(&#x27;pg&#x27;);
+const pool = new Pool();
+
+async function transfer(fromId, toId, amount) {
+  const client = await pool.connect();
+  try {
+    await client.query(&#x27;BEGIN&#x27;);
+    await client.query(&#x27;UPDATE accounts SET balance = balance - $1 WHERE id=$2&#x27;, [amount, fromId]);
+    await client.query(&#x27;UPDATE accounts SET balance = balance + $1 WHERE id=$2&#x27;, [amount, toId]);
+    await client.query(&#x27;COMMIT&#x27;);
+  } catch (e) {
+    await client.query(&#x27;ROLLBACK&#x27;);
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+</code></pre>
+<div class="spacer"></div>
+<h2>Senior Notes</h2>
+<ul>
+<li>Use <code>SERIALIZABLE</code> or explicit row locks for critical invariants.</li>
+<li>Avoid deadlocks by ordering updates consistently.</li>
+<li>Include retries for serialization failures.</li>
+</ul><h1>Idempotent APIs</h1>
+<div class="spacer"></div>
+<h2>Question</h2>
+<p>How do you make a POST request safe against retries and network failures?</p>
+<div class="spacer"></div>
+<h2>Answer</h2>
+<p>Use idempotency keys. Store the result for a request token so repeated calls return the same outcome without double‑writing.</p>
+<div class="spacer"></div>
+<h2>Illustration</h2>
+<pre><code>
+Client → POST /charge (Idempotency-Key: abc123)
+Server → if abc123 exists → return stored result
+</code></pre>
+<div class="spacer"></div>
+<h2>Code Example (Conceptual)</h2>
+<pre><code>
+const cache = new Map();
+
+async function createCharge(req, res) {
+  const key = req.headers[&#x27;idempotency-key&#x27;];
+  if (key &amp;&amp; cache.has(key)) return res.json(cache.get(key));
+
+  const result = { status: &#x27;charged&#x27;, id: Date.now() };
+  if (key) cache.set(key, result);
+  res.json(result);
+}
+</code></pre>
+<div class="spacer"></div>
+<h2>Senior Notes</h2>
+<ul>
+<li>Use Redis for distributed idempotency with TTLs.</li>
+<li>Record request fingerprints to avoid replay with altered payloads.</li>
+<li>Make downstream side effects idempotent too.</li>
+</ul><h1>Caching Strategies (Read‑Through, Write‑Through)</h1>
+<div class="spacer"></div>
+<h2>Question</h2>
+<p>How do you reduce database load for hot endpoints?</p>
+<div class="spacer"></div>
+<h2>Answer</h2>
+<p>Use a cache layer with TTLs and invalidation. Read‑through caches fetch on miss and store. Write‑through caches update the cache on writes.</p>
+<div class="spacer"></div>
+<h2>Illustration</h2>
+<pre><code>
+Request → Cache Hit → Return
+       → Cache Miss → DB → Cache Store → Return
+</code></pre>
+<div class="spacer"></div>
+<h2>Code Example (Redis Read‑Through)</h2>
+<pre><code>
+async function getUser(id, redis, db) {
+  const key = `user:${id}`;
+  const cached = await redis.get(key);
+  if (cached) return JSON.parse(cached);
+
+  const user = await db.getUser(id);
+  await redis.set(key, JSON.stringify(user), &#x27;EX&#x27;, 60);
+  return user;
+}
+</code></pre>
+<div class="spacer"></div>
+<h2>Senior Notes</h2>
+<ul>
+<li>Prevent cache stampedes with locks or request coalescing.</li>
+<li>Use short TTLs for volatile data.</li>
+<li>Cache negative results carefully to avoid stale errors.</li>
+</ul><h1>Rate Limiting and Abuse Prevention</h1>
+<div class="spacer"></div>
+<h2>Question</h2>
+<p>How do you prevent brute‑force and abuse at the API layer?</p>
+<div class="spacer"></div>
+<h2>Answer</h2>
+<p>Implement rate limiting with a token bucket or sliding window. Enforce per IP, per user, and per route limits.</p>
+<div class="spacer"></div>
+<h2>Illustration</h2>
+<pre><code>
+Token Bucket
+- refill rate: 5 req/s
+- burst: 20
+</code></pre>
+<div class="spacer"></div>
+<h2>Code Example (In‑Memory Token Bucket)</h2>
+<pre><code>
+const buckets = new Map();
+
+function allow(ip) {
+  const now = Date.now();
+  const bucket = buckets.get(ip) || { tokens: 20, last: now };
+  const refill = ((now - bucket.last) / 1000) * 5;
+  bucket.tokens = Math.min(20, bucket.tokens + refill);
+  bucket.last = now;
+
+  if (bucket.tokens &gt;= 1) {
+    bucket.tokens -= 1;
+    buckets.set(ip, bucket);
+    return true;
+  }
+  buckets.set(ip, bucket);
+  return false;
+}
+</code></pre>
+<div class="spacer"></div>
+<h2>Senior Notes</h2>
+<ul>
+<li>Use Redis or a shared store in distributed setups.</li>
+<li>Add separate burst and sustained limits.</li>
+<li>Combine with WAF rules and bot detection.</li>
+</ul><h1>Message Queues and At‑Least‑Once Delivery</h1>
+<div class="spacer"></div>
+<h2>Question</h2>
+<p>How do you handle background jobs without blocking requests?</p>
+<div class="spacer"></div>
+<h2>Answer</h2>
+<p>Push work to a queue and process asynchronously. Expect at‑least‑once delivery and make handlers idempotent.</p>
+<div class="spacer"></div>
+<h2>Illustration</h2>
+<pre><code>
+API → Queue → Worker(s) → DB/Email
+           ↑ retries, at‑least‑once
+</code></pre>
+<div class="spacer"></div>
+<h2>Code Example (Idempotent Worker)</h2>
+<pre><code>
+async function handler(job) {
+  if (await isProcessed(job.id)) return;
+  await doWork(job.data);
+  await markProcessed(job.id);
+}
+</code></pre>
+<div class="spacer"></div>
+<h2>Senior Notes</h2>
+<ul>
+<li>Avoid double execution with dedup or idempotent writes.</li>
+<li>For Kafka, manage offsets and rebalances carefully.</li>
+<li>Use dead‑letter queues for poison messages.</li>
+</ul><h1>Security: Input Validation and Injection Prevention</h1>
+<div class="spacer"></div>
+<h2>Question</h2>
+<p>How do you secure Node.js APIs from injection and malformed input?</p>
+<div class="spacer"></div>
+<h2>Answer</h2>
+<p>Validate inputs with schemas, use parameterized queries, and never build SQL with string concatenation.</p>
+<div class="spacer"></div>
+<h2>Illustration</h2>
+<pre><code>
+Request → Validate → Sanitize → Execute
+</code></pre>
+<div class="spacer"></div>
+<h2>Code Example (Zod Validation)</h2>
+<pre><code>
+const { z } = require(&#x27;zod&#x27;);
+
+const schema = z.object({
+  email: z.string().email(),
+  age: z.number().int().min(13)
+});
+
+function validate(body) {
+  return schema.parse(body);
+}
+</code></pre>
+<div class="spacer"></div>
+<h2>Senior Notes</h2>
+<ul>
+<li>Use allow‑lists for fields.</li>
+<li>Add output encoding and CSP headers.</li>
+<li>Avoid logging sensitive data (tokens, passwords, PII).</li>
+</ul><h1>Observability: Logs, Metrics, and Traces</h1>
+<div class="spacer"></div>
+<h2>Question</h2>
+<p>How do you debug latency spikes in production?</p>
+<div class="spacer"></div>
+<h2>Answer</h2>
+<p>Use structured logs, request IDs, metrics (P95, P99), and distributed tracing. Correlate logs with traces to isolate slow dependencies.</p>
+<div class="spacer"></div>
+<h2>Illustration</h2>
+<pre><code>
+Request ID → Log → Trace → Metrics
+</code></pre>
+<div class="spacer"></div>
+<h2>Code Example (Request ID Middleware)</h2>
+<pre><code>
+const { randomUUID } = require(&#x27;crypto&#x27;);
+
+function requestId(req, res, next) {
+  req.id = randomUUID();
+  res.setHeader(&#x27;x-request-id&#x27;, req.id);
+  next();
+}
+</code></pre>
+<div class="spacer"></div>
+<h2>Senior Notes</h2>
+<ul>
+<li>Track event loop lag and memory usage.</li>
+<li>Alert on error rates and saturation.</li>
+<li>Tag metrics with route and dependency labels.</li>
+</ul><h1>CAP Theorem (Consistency, Availability, Partition Tolerance)</h1>
+<div class="spacer"></div>
+<h2>Question</h2>
+<p>What does CAP mean, and how does it affect backend system design?</p>
+<div class="spacer"></div>
+<h2>Answer</h2>
+<p>CAP says in the presence of a network partition, a distributed system must choose between **Consistency** and **Availability**. Partition tolerance is required in real networks. You decide whether to favor consistency (CP) or availability (AP) during partitions.</p>
+<div class="spacer"></div>
+<h2>Illustration</h2>
+<pre><code>
+Network Partition
+  ↙         ↘
+Node A    Node B
+
+Choose: Consistency or Availability during partition
+</code></pre>
+<div class="spacer"></div>
+<h2>Practical Examples</h2>
+<ul>
+<li>CP: Financial transactions, inventory reservation.</li>
+<li>AP: Analytics dashboards, social feeds, caching layers.</li>
+</ul>
+<div class="spacer"></div>
+<h2>Node.js Code Example (AP‑style cache fallback)</h2>
+<pre><code>
+async function getProfile(id, cache, db) {
+  const cached = await cache.get(id);
+  if (cached) return JSON.parse(cached);
+
+  try {
+    const user = await db.getUser(id);
+    await cache.set(id, JSON.stringify(user), &#x27;EX&#x27;, 60);
+    return user;
+  } catch (e) {
+    // AP choice: return stale or empty during DB partition
+    return cached ? JSON.parse(cached) : { id, status: &#x27;stale&#x27; };
+  }
+}
+</code></pre>
+<div class="spacer"></div>
+<h2>Senior Notes</h2>
+<ul>
+<li>CP systems may reject writes during partitions.</li>
+<li>AP systems may return stale data and reconcile later.</li>
+<li>You often mix CP and AP at different layers.</li>
+</ul><h1>Database Indexing</h1>
+<div class="spacer"></div>
+<h2>Question</h2>
+<p>How do database indexes work, and how do you decide what to index?</p>
+<div class="spacer"></div>
+<h2>Answer</h2>
+<p>Indexes are data structures (typically B‑trees or hashes) that speed up lookups at the cost of extra storage and slower writes. You index columns used in filters, joins, and sort operations, especially for high‑selectivity queries.</p>
+<div class="spacer"></div>
+<h2>Illustration</h2>
+<pre><code>
+Table Scan:  O(n)
+Index Seek: O(log n)
+</code></pre>
+<div class="spacer"></div>
+<h2>Example Query</h2>
+<pre><code>
+SELECT * FROM orders
+WHERE user_id = 42 AND created_at &gt; NOW() - INTERVAL &#x27;7 days&#x27;
+ORDER BY created_at DESC
+</code></pre>
+<div class="spacer"></div>
+<p>**Good index:** <code>(user_id, created_at DESC)</code></p>
+<div class="spacer"></div>
+<h2>Node.js Code Example (Query Optimization)</h2>
+<pre><code>
+async function getRecentOrders(db, userId) {
+  const sql = `
+    SELECT id, total, created_at
+    FROM orders
+    WHERE user_id = $1
+    ORDER BY created_at DESC
+    LIMIT 20
+  `;
+  return db.query(sql, [userId]);
+}
+</code></pre>
+<div class="spacer"></div>
+<h2>Senior Notes</h2>
+<ul>
+<li>Composite indexes should match filter order.</li>
+<li>Avoid over‑indexing write‑heavy tables.</li>
+<li>Use <code>EXPLAIN</code> to verify plan and index usage.</li>
+</ul><h1>System Design Deep Dives (Senior Level)</h1>
+<div class="spacer"></div>
+<p>Below are two common FAANG‑level system design prompts with Node.js‑oriented considerations and code snippets.</p>
+<div class="spacer"></div>
+<p>---</p>
+<div class="spacer"></div>
+<h2>A. Design a URL Shortener</h2>
+<div class="spacer"></div>
+<h3>Requirements</h3>
+<ul>
+<li>Create short URLs and redirect quickly.</li>
+<li>Handle high read traffic.</li>
+<li>Low latency and high availability.</li>
+</ul>
+<div class="spacer"></div>
+<h3>Core Design</h3>
+<ul>
+<li>API: <code>POST /shorten</code>, <code>GET /:code</code></li>
+<li>Storage: key‑value store for <code>code → long_url</code>.</li>
+<li>Generate code with base62 and collision checks.</li>
+<li>Cache hot keys in Redis.</li>
+</ul>
+<div class="spacer"></div>
+<h3>Illustration</h3>
+<pre><code>
+Client → API → Cache → DB
+        ← Redirect
+</code></pre>
+<div class="spacer"></div>
+<h3>Node.js Code Sketch</h3>
+<pre><code>
+function base62Encode(num) {
+  const chars = &#x27;0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ&#x27;;
+  let out = &#x27;&#x27;;
+  while (num &gt; 0) {
+    out = chars[num % 62] + out;
+    num = Math.floor(num / 62);
+  }
+  return out || &#x27;0&#x27;;
+}
+
+async function createShortUrl(db, longUrl) {
+  const id = await db.nextId();
+  const code = base62Encode(id);
+  await db.put(code, longUrl);
+  return code;
+}
+</code></pre>
+<div class="spacer"></div>
+<h3>Senior Notes</h3>
+<ul>
+<li>Use append‑only ID generation to avoid hot partitions.</li>
+<li>Add expiration for one‑time or temporary links.</li>
+<li>Store redirects in CDN or edge cache for ultra‑low latency.</li>
+</ul>
+<div class="spacer"></div>
+<p>---</p>
+<div class="spacer"></div>
+<h2>B. Design a Rate‑Limited Notification Service</h2>
+<div class="spacer"></div>
+<h3>Requirements</h3>
+<ul>
+<li>Accept notification requests from multiple services.</li>
+<li>Deliver via email, SMS, push.</li>
+<li>Respect per‑user rate limits and retries.</li>
+</ul>
+<div class="spacer"></div>
+<h3>Core Design</h3>
+<ul>
+<li>API: <code>POST /notify</code></li>
+<li>Queue for async processing.</li>
+<li>Worker pool with per‑user throttling.</li>
+<li>Deduplication using idempotency keys.</li>
+</ul>
+<div class="spacer"></div>
+<h3>Illustration</h3>
+<pre><code>
+API → Queue → Worker → Provider
+              ↑ rate limits
+</code></pre>
+<div class="spacer"></div>
+<h3>Node.js Code Sketch</h3>
+<pre><code>
+async function processJob(job, limiter, provider) {
+  const ok = await limiter.consume(job.userId, 1);
+  if (!ok) throw new Error(&#x27;rate limit&#x27;);
+
+  await provider.send(job.payload);
+}
+</code></pre>
+<div class="spacer"></div>
+<h3>Senior Notes</h3>
+<ul>
+<li>Use exponential backoff and DLQs for failures.</li>
+<li>Track delivery status with a state machine.</li>
+<li>Separate ingestion from delivery for resilience.</li>
+</ul>
+</body>
+</html>
